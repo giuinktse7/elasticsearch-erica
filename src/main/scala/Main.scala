@@ -1,18 +1,16 @@
+import java.util.Date
+
 import com.sksamuel.elastic4s.ElasticsearchClientUri
 import com.sksamuel.elastic4s.http.HttpClient
 import com.sksamuel.elastic4s.http.search.SearchResponse
 import com.sksamuel.elastic4s.RefreshPolicy
 
 object Main extends App {
+  val formatString = "yyyy-MM-dd'T'HH:mm:ss.SSS"
+  val format = new java.text.SimpleDateFormat(formatString)
+  val now = format.format(new Date())
 
-  def test(args: (String, String)*) = {
-    args foreach { x => println(x._1) }
-  }
-
-  val k = List("hej" -> "a", "hej2" -> "b")
-  test(k: _*)
-
-  def serializeEvent(event: EricaEvent) = (
+  def serializeEvent(event: EricaEvent) = List(
     "careContactId" -> event.CareContactId,
     "category" -> event.Category,
     "start" -> event.Start,
@@ -29,41 +27,48 @@ object Main extends App {
 
   val client = HttpClient(ElasticsearchClientUri("198.211.120.44", 8080))
 
-  client.execute {
+  /*client.execute {
+    deleteIndex("events")
+  }.await
+*/
+/*  client.execute {
     createIndex("events").mappings(
       mapping("erica-event").fields(
         textField("reasonForVisit") analyzer NotAnalyzed,
         intField("patientId"),
-        dateField("start"),
-        dateField("end"),
-        textField("title"),
-        textField("type"),
-        textField("value"),
+        dateField("start") format formatString,
+        dateField("end") format formatString,
+        textField("title") analyzer NotAnalyzed,
+        textField("type") analyzer NotAnalyzed,
+        textField("value") analyzer NotAnalyzed,
         intField("visitId"),
-        dateField("timeEvent")
+        dateField("timeEvent") format formatString
       )
     )
   }.await
-  
+  */
 
-  def sendToElasticSearch(event: List[(String, Any)]) = client.execute {
-    (indexInto("events" / "erica-event") fields event).refresh(RefreshPolicy.IMMEDIATE)
+  def sendToElasticSearch(event: List[(String, Any)], eventId: Int) = client.execute {
+    (indexInto("events" / "erica-event") fields event).id(eventId.toString).refresh(RefreshPolicy.IMMEDIATE)
   }.await
 
-  def newEvent(reason: String, id: Int) = List("reasonForVisit" -> reason, "patientId" -> id)
+  val ericaEvents = List(
+    EricaEvent(1, "Some category", now, now, "Hello im an event", "MyType", "Value", 1, now),
+    EricaEvent(2, "Some category", now, now, "Hello im an event", "MyType", "Value", 2, now)
+  )
 
-  sendToElasticSearch(newEvent("None", 2))
-  sendToElasticSearch(newEvent("None", 8))
-  sendToElasticSearch(newEvent("Party", 10))
+  println(now)
+
+  ericaEvents foreach { event => sendToElasticSearch(serializeEvent(event), event.CareContactId) }
 
 
   val resp = client.execute {
-    search("events") query "None OR Party"
+    search("events") query "Hello"
   }.await
 
   resp match {
     case Left(failure) => println("haha oh no")
-    case Right(results) => println(results.result.hits.total)
+    case Right(results) => println(results.result.totalHits)
   }
 
   client.close()
